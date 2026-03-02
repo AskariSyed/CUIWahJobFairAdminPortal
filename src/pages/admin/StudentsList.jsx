@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Search, Filter, Eye, BookOpen, Award, XCircle, Bell
+  Search, Filter, Eye, BookOpen, Award, XCircle, Bell, Edit2, X, Save
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import SendNotificationModal from '../../lib/components/SendNotificationModal';
-import api, { BACKEND_URL } from '../../lib/api';
+import api, { BACKEND_URL, updateStudentCredentials } from '../../lib/api';
 
 // 🔧 CONFIGURATION
 
@@ -22,9 +22,12 @@ const StudentsList = () => {
   const [meta, setMeta] = useState({ page: 1, totalPages: 1, totalCount: 0 });
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editFormData, setEditFormData] = useState({ email: '', password: '' });
+  const [editLoading, setEditLoading] = useState(false);
   
   // Notification Modal State
-  const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
+  const [notifyModal, setNotifyModal] = useState({ open: false, student: null });
 
   // Fetch Students (Accepts page AND search query)
   const fetchStudents = async (page = 1, search = '') => {
@@ -65,6 +68,40 @@ const StudentsList = () => {
     fetchStudents(1, '');
   };
 
+  const handleEditClick = (student) => {
+    setEditingId(student.studentId);
+    setEditFormData({
+      email: student.email || '',
+      password: ''
+    });
+  };
+
+  const handleEditSave = async (studentId) => {
+    try {
+      setEditLoading(true);
+      const updateData = {};
+      if (editFormData.email.trim()) updateData.email = editFormData.email.trim();
+      if (editFormData.password.trim()) updateData.password = editFormData.password.trim();
+
+      if (Object.keys(updateData).length === 0) {
+        toast.error('Please update at least one field');
+        return;
+      }
+
+      await updateStudentCredentials(studentId, updateData);
+      toast.success('Student credentials updated');
+      setEditingId(null);
+      setEditFormData({ email: '', password: '' });
+      fetchStudents(meta.page, searchTerm);
+    } catch (error) {
+      console.error(error);
+      const errorMsg = error.response?.data?.Message || 'Failed to update credentials';
+      toast.error(errorMsg);
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in pb-10">
       
@@ -79,7 +116,7 @@ const StudentsList = () => {
           
           {/* Notify All Button */}
           <button 
-            onClick={() => setIsNotifyModalOpen(true)}
+            onClick={() => setNotifyModal({ open: true, student: null })}
             className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 shadow-sm transition"
           >
             <Bell size={16} /> Notify All
@@ -126,8 +163,6 @@ const StudentsList = () => {
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Reg No</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Dept</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">CGPA</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">FYP Title</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-center">Stats</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">Action</th>
               </tr>
             </thead>
@@ -160,27 +195,89 @@ const StudentsList = () => {
                     <td className="px-6 py-4 text-sm font-mono text-gray-600">{s.registrationNo}</td>
                     <td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs">{s.department}</span></td>
                     <td className="px-6 py-4"><span className={`font-bold ${s.cgpa >= 3.0 ? 'text-emerald-600' : 'text-gray-600'}`}>{s.cgpa?.toFixed(2)}</span></td>
-                    <td className="px-6 py-4 max-w-xs text-sm text-gray-600 truncate" title={s.fypTitle}>{s.fypTitle || '-'}</td>
-                    <td className="px-6 py-4 text-center">
-                       <div className="flex justify-center gap-3 text-xs text-gray-500">
-                          <span className="flex items-center gap-1" title="Projects"><BookOpen size={12}/> {s.totalProjects}</span>
-                          <span className="flex items-center gap-1" title="Achievements"><Award size={12}/> {s.totalAchievements}</span>
-                       </div>
-                    </td>
+                    
                     <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => navigate(`/admin/students/${s.studentId}`)} 
-                        className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 p-2 rounded-lg hover:bg-indigo-100 transition"
-                      >
-                        <Eye size={16} />
-                      </button>
+                      {editingId === s.studentId ? (
+                        <div className="flex flex-col gap-2 bg-gray-50 p-3 rounded-lg -mr-3">
+                          <input
+                            type="email"
+                            placeholder="New Email"
+                            value={editFormData.email}
+                            onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                            className="px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                          <input
+                            type="password"
+                            placeholder="New Password (optional)"
+                            value={editFormData.password}
+                            onChange={(e) => setEditFormData({ ...editFormData, password: e.target.value })}
+                            className="px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleEditSave(s.studentId)}
+                              disabled={editLoading}
+                              className="flex-1 text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 disabled:opacity-60"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="flex-1 text-xs bg-gray-400 text-white px-2 py-1 rounded hover:bg-gray-500"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-end gap-2">
+                          <button 
+                            onClick={() => handleEditClick(s)}
+                            className="text-blue-600 hover:text-blue-900 bg-blue-50 p-2 rounded-lg hover:bg-blue-100 transition"
+                            title="Edit Credentials"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button 
+                            onClick={() => setNotifyModal({ open: true, student: s })}
+                            className="text-amber-600 hover:text-amber-900 bg-amber-50 p-2 rounded-lg hover:bg-amber-100 transition"
+                            title="Notify Student"
+                          >
+                            <Bell size={16} />
+                          </button>
+                          <button 
+                            onClick={() => navigate(`/admin/students/${s.studentId}`)} 
+                            className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 p-2 rounded-lg hover:bg-indigo-100 transition"
+                            title="View Details"
+                          >
+                            <Eye size={16} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="7" className="px-6 py-16 text-center text-gray-500">
-                    <p>No students found matching <strong>"{searchTerm}"</strong></p>
+                  <td colSpan="7" className="px-6 py-16 text-center">
+                    <div className="flex flex-col items-center justify-center text-gray-500">
+                      <div className="bg-gray-100 p-4 rounded-full mb-3">
+                        <Search size={32} className="text-gray-400" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-700 mb-1">No Students Found</h3>
+                      <p className="text-sm max-w-xs mx-auto mb-4">
+                        We couldn't find any students matching <strong>"{searchTerm}"</strong>. 
+                        Try adjusting your search or filters.
+                      </p>
+                      {searchTerm && (
+                        <button 
+                          onClick={clearSearch}
+                          className="text-indigo-600 hover:text-indigo-800 font-medium text-sm flex items-center gap-1"
+                        >
+                          <XCircle size={14} /> Clear Search
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )}
@@ -214,8 +311,11 @@ const StudentsList = () => {
 
       {/* Notification Modal */}
       <SendNotificationModal 
-        isOpen={isNotifyModalOpen} 
-        onClose={() => setIsNotifyModalOpen(false)} 
+        isOpen={notifyModal.open} 
+        onClose={() => setNotifyModal({ open: false, student: null })}
+        recipientId={notifyModal.student?.studentId}
+        recipientName={notifyModal.student?.name}
+        type="student"
       />
     </div>
   );

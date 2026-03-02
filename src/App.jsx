@@ -11,7 +11,9 @@ import AdminLayout from './layouts/AdminLayout';
 // Import Admin Pages (Ensure these files exist, or comment them out for now)
 import Dashboard from './pages/admin/dashboard';
 import StudentsList from './pages/admin/StudentsList';
+import AllStudentsList from './pages/admin/AllStudentsList';
 import CompaniesList from './pages/admin/CompaniesList';
+import CompanyRequests from './pages/admin/CompanyRequests';
 import RoomsManagement from './pages/admin/RoomsManagement';
 import JobFairSetup from './pages/admin/JobFairSetup';
 import StudentDetail from './pages/admin/StudentDetail';
@@ -19,6 +21,8 @@ import JobFairAnalytics from './pages/admin/JobFairAnalytics';
 import FeedbackStats from './pages/admin/FeedBackStats';
 import NoticeBoard from './pages/admin/NoticeBoard';
 import CompanyDetail from './pages/admin/CompanyDetail';
+import AttendanceManagement from './pages/admin/AttendanceManagement';
+import SurveyResponses from './pages/admin/SurveyResponses';
 
 
 // ----------------------------------------------------------------------
@@ -73,15 +77,19 @@ function App() {
           
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="students" element={<StudentsList />} />
+          <Route path="all-students" element={<AllStudentsList />} />
           {/* 2. Add this line: */}
-  <Route path="companies" element={<CompaniesList />} />
-  <Route path="rooms" element={<RoomsManagement />} />
-  <Route path="setup" element={<JobFairSetup />} />
-  <Route path="students/:studentId" element={<StudentDetail />} />
-  <Route path="analytics" element={<JobFairAnalytics />} />
-  <Route path="feedback" element={<FeedbackStats />} />
-  <Route path="companies/:companyId" element={<CompanyDetail />} />
-  <Route path="notices" element={<NoticeBoard />} />
+          <Route path="companies" element={<CompaniesList />} />
+          <Route path="company-requests" element={<CompanyRequests />} />
+          <Route path="rooms" element={<RoomsManagement />} />
+          <Route path="setup" element={<JobFairSetup />} />
+          <Route path="students/:studentId" element={<StudentDetail />} />
+          <Route path="analytics" element={<JobFairAnalytics />} />
+          <Route path="feedback" element={<FeedbackStats />} />
+          <Route path="companies/:companyId" element={<CompanyDetail />} />
+          <Route path="notices" element={<NoticeBoard />} />
+          <Route path="attendance" element={<AttendanceManagement />} />
+          <Route path="surveys" element={<SurveyResponses />} />
           
           {/* Add more admin routes here later (e.g., Companies, Rooms) */}
         </Route>

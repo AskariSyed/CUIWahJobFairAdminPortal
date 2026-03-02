@@ -4,11 +4,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Mail, Phone, Globe, Github, Linkedin, 
   Briefcase, Award, GraduationCap, PlayCircle, ExternalLink,
-  Layers, Bell
+  Layers, Bell, Edit2, Save, X
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import SendNotificationModal from '../../lib/components/SendNotificationModal';
-import api, { BACKEND_URL } from '../../lib/api';
+import api, { BACKEND_URL, updateStudentCredentials } from '../../lib/api';
 
 
 const getImageUrl = (path) => {
@@ -51,12 +51,16 @@ const StudentDetail = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
+  const [isEditingCredentials, setIsEditingCredentials] = useState(false);
+  const [credentialsFormData, setCredentialsFormData] = useState({ email: '', password: '' });
+  const [credentialsLoading, setCredentialsLoading] = useState(false);
 
   useEffect(() => {
     const fetchDetails = async () => {
       try {
         const res = await api.get(`/admin/students/${studentId}/details`);
         setData(res.data);
+        setCredentialsFormData({ email: res.data.contactDetails?.email || '', password: '' });
       } catch (err) {
         toast.error("Failed to load profile");
         navigate('/admin/students');
@@ -66,6 +70,34 @@ const StudentDetail = () => {
     };
     fetchDetails();
   }, [studentId, navigate]);
+
+  const handleSaveCredentials = async () => {
+    try {
+      setCredentialsLoading(true);
+      const updateData = {};
+      if (credentialsFormData.email.trim()) updateData.email = credentialsFormData.email.trim();
+      if (credentialsFormData.password.trim()) updateData.password = credentialsFormData.password.trim();
+
+      if (Object.keys(updateData).length === 0) {
+        toast.error('Please update at least one field');
+        return;
+      }
+
+      await updateStudentCredentials(studentId, updateData);
+      toast.success('Credentials updated successfully');
+      setIsEditingCredentials(false);
+      // Refresh the profile
+      const res = await api.get(`/admin/students/${studentId}/details`);
+      setData(res.data);
+      setCredentialsFormData({ email: res.data.contactDetails?.email || '', password: '' });
+    } catch (error) {
+      console.error(error);
+      const errorMsg = error.response?.data?.Message || 'Failed to update credentials';
+      toast.error(errorMsg);
+    } finally {
+      setCredentialsLoading(false);
+    }
+  };
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center h-[80vh]">
@@ -124,6 +156,14 @@ const StudentDetail = () => {
             {/* Action Buttons */}
             <div className="w-full mt-6 space-y-3">
               
+              {/* EDIT CREDENTIALS BUTTON */}
+              <button 
+                onClick={() => setIsEditingCredentials(true)}
+                className="flex items-center justify-center gap-2 w-full py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition shadow-md shadow-blue-200"
+              >
+                <Edit2 size={16} /> Edit Credentials
+              </button>
+
               {/* NOTIFY BUTTON */}
               <button 
                 onClick={() => setIsNotifyModalOpen(true)}
@@ -155,6 +195,64 @@ const StudentDetail = () => {
               ))}
             </div>
           </div>
+
+          {/* Edit Credentials Modal */}
+          {isEditingCredentials && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-900">Edit Credentials</h3>
+                <button
+                  onClick={() => setIsEditingCredentials(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={credentialsFormData.email}
+                    onChange={(e) => setCredentialsFormData({ ...credentialsFormData, email: e.target.value })}
+                    placeholder="Leave empty to keep current"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                  <input
+                    type="password"
+                    value={credentialsFormData.password}
+                    onChange={(e) => setCredentialsFormData({ ...credentialsFormData, password: e.target.value })}
+                    placeholder="Leave empty to keep current"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={handleSaveCredentials}
+                    disabled={credentialsLoading}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-medium transition"
+                  >
+                    <Save size={16} /> Save Changes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsEditingCredentials(false);
+                      setCredentialsFormData({ email: data.contactDetails?.email || '', password: '' });
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Skills Card */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">

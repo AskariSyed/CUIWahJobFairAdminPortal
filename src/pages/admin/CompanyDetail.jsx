@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Building2, MapPin, Mail, Phone, Globe, User, 
   Briefcase, CheckCircle, XCircle, Clock, Calendar, 
-  Users, Layout, Link as LinkIcon
+  Users, Layout, Link as LinkIcon, FileText, Eye
 } from 'lucide-react';
 import api from '../../lib/api';
 import { toast } from 'react-hot-toast';
@@ -19,26 +19,135 @@ const getImageUrl = (path) => {
   return `${BACKEND_URL}${path}`; 
 };
 
+// ----------------------------------------------------------------------
+// Modal: Assign Room
+// ----------------------------------------------------------------------
+const AssignRoomModal = ({ companyId, companyName, onClose, onSuccess }) => {
+  const [rooms, setRooms] = useState([]);
+  const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [isTentative, setIsTentative] = useState(false); // New State
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchRooms = async () => {
+      try {
+        const res = await api.get('/admin/rooms?status=0'); // Fetch vacant rooms
+        setRooms(res.data.filter(r => r.status === 0));
+      } catch (error) {
+        toast.error("Failed to load rooms");
+      }
+    };
+    fetchRooms();
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedRoomId) return;
+    
+    setLoading(true);
+    try {
+      if (isTentative) {
+        await api.put(`/admin/rooms/tentatively-assign?companyId=${companyId}&roomId=${selectedRoomId}`);
+        toast.success(`Room tentatively assigned to ${companyName}`);
+      } else {
+        await api.put(`/admin/rooms/assign-company?companyId=${companyId}&roomId=${selectedRoomId}`);
+        toast.success(`Room assigned to ${companyName}`);
+      }
+      onSuccess();
+      onClose();
+    } catch (error) {
+      toast.error("Failed to assign room");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-fade-in">
+        <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
+          <h3 className="font-bold text-gray-800">Assign Room to {companyName}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <XCircle size={20} />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Select Room</label>
+            <select 
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+              value={selectedRoomId}
+              onChange={(e) => setSelectedRoomId(e.target.value)}
+              required
+            >
+              <option value="">Select a vacant room...</option>
+              {rooms.map(room => (
+                <option key={room.roomId} value={room.roomId}>
+                  {room.roomName} (Capacity: {room.capacity})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input 
+              type="checkbox" 
+              id="tentative" 
+              className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+              checked={isTentative}
+              onChange={(e) => setIsTentative(e.target.checked)}
+            />
+            <label htmlFor="tentative" className="text-sm text-gray-700 select-none">
+              Tentative Assignment (Pending Confirmation)
+            </label>
+          </div>
+
+          <div className="pt-2 flex justify-end gap-3">
+            <button 
+              type="button" 
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button 
+              type="submit" 
+              disabled={loading || !selectedRoomId}
+              className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 ${isTentative ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+            >
+              {loading ? 'Assigning...' : isTentative ? 'Assign Tentatively' : 'Assign Room'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const CompanyDetail = () => {
   const { companyId } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview'); // overview | pipeline | results
+  const [activeTab, setActiveTab] = useState('overview'); // overview | pipeline | results | surveys
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [surveysData, setSurveysData] = useState(null);
+
+  const fetchDetails = async () => {
+    try {
+      // Matches AdminController [HttpGet("companies/{companyId}/details")]
+      const res = await api.get(`/admin/companies/${companyId}/details`);
+      setData(res.data);
+    } catch (err) {
+      toast.error("Failed to load company details");
+      navigate('/admin/companies');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchDetails = async () => {
-      try {
-        // Matches AdminController [HttpGet("companies/{companyId}/details")]
-        const res = await api.get(`/admin/companies/${companyId}/details`);
-        setData(res.data);
-      } catch (err) {
-        toast.error("Failed to load company details");
-        navigate('/admin/companies');
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchDetails();
   }, [companyId, navigate]);
 
@@ -103,6 +212,11 @@ const CompanyDetail = () => {
                   <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
                     {data.arrivalStatus}
                   </span>
+                  {typeof data.repsCount === 'number' && (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-700 border border-gray-200">
+                      Reps: {data.repsCount}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -113,7 +227,16 @@ const CompanyDetail = () => {
                      <MapPin size={18} className="text-indigo-500" />
                      <span className="text-sm font-semibold">Allocated Room</span>
                    </div>
-                   <span className="text-sm font-bold text-gray-900">{data.room?.roomName || 'N/A'}</span>
+                   {data.room ? (
+                     <span className="text-sm font-bold text-gray-900">{data.room.roomName}</span>
+                   ) : (
+                     <button 
+                       onClick={() => setShowAssignModal(true)}
+                       className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline"
+                     >
+                       Assign Room
+                     </button>
+                   )}
                 </div>
 
                 {/* Website */}
@@ -158,10 +281,24 @@ const CompanyDetail = () => {
           
           {/* Tabs */}
           <div className="flex border-b border-gray-200">
-            {['overview', 'pipeline', 'results'].map((tab) => (
+            {['overview', 'pipeline', 'results', 'surveys'].map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => {
+                  setActiveTab(tab);
+                  // Fetch surveys when switching to surveys tab
+                  if (tab === 'surveys' && !surveysData) {
+                    const fetchSurveys = async () => {
+                      try {
+                        const res = await api.get(`/api/survey/company/${companyId}`);
+                        setSurveysData(res.data);
+                      } catch (error) {
+                        toast.error("Failed to load survey data");
+                      }
+                    };
+                    fetchSurveys();
+                  }
+                }}
                 className={`px-6 py-4 text-sm font-medium capitalize transition-colors border-b-2 ${
                   activeTab === tab 
                     ? 'border-indigo-600 text-indigo-600' 
@@ -372,8 +509,96 @@ const CompanyDetail = () => {
             </div>
           )}
 
+          {/* TAB 4: SURVEYS */}
+          {activeTab === 'surveys' && (
+            <div className="space-y-6 animate-fade-in">
+              {surveysData && surveysData.totalSurveys > 0 ? (
+                <>
+                  {/* Survey Stats */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm text-center">
+                      <p className="text-gray-500 text-xs font-medium">Total</p>
+                      <h3 className="text-2xl font-bold text-gray-800 mt-1">{surveysData.totalSurveys}</h3>
+                    </div>
+                    <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 shadow-sm text-center">
+                      <p className="text-indigo-600 text-xs font-medium">CDC</p>
+                      <h3 className="text-2xl font-bold text-indigo-600 mt-1">{surveysData.cdcSurveys}</h3>
+                    </div>
+                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 shadow-sm text-center">
+                      <p className="text-amber-600 text-xs font-medium">Department</p>
+                      <h3 className="text-2xl font-bold text-amber-600 mt-1">{surveysData.departmentSurveys}</h3>
+                    </div>
+                  </div>
+
+                  {/* Survey Responses Table */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="p-4 border-b bg-gray-50 font-bold text-gray-800">
+                      Survey Responses
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700">Type</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700">Submitted</th>
+                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {surveysData.surveys.map((survey) => (
+                            <tr key={survey.surveyId} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                                  survey.type === 'CDC'
+                                    ? 'bg-indigo-100 text-indigo-700 border-indigo-200'
+                                    : 'bg-amber-100 text-amber-700 border-amber-200'
+                                }`}>
+                                  {survey.type}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-gray-600">
+                                {new Date(survey.submittedAt).toLocaleDateString()}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  onClick={() => {
+                                    // Open a modal or navigate to view full responses
+                                    alert(`Survey ID: ${survey.surveyId}\n\nFull survey data:\n${JSON.stringify(survey.responses, null, 2)}`);
+                                  }}
+                                  className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors inline-flex items-center gap-1"
+                                >
+                                  <Eye size={14} /> View
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="bg-white p-8 rounded-xl border border-gray-200 shadow-sm text-center">
+                  <FileText size={48} className="text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-600 font-medium">No surveys submitted yet</p>
+                  <p className="text-sm text-gray-400 mt-1">Surveys will appear here once companies submit them</p>
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
+
+      {/* Assign Room Modal */}
+      {showAssignModal && (
+        <AssignRoomModal 
+          companyId={companyId}
+          companyName={data.name}
+          onClose={() => setShowAssignModal(false)}
+          onSuccess={fetchDetails}
+        />
+      )}
     </div>
   );
 };

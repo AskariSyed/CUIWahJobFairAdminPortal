@@ -3,7 +3,13 @@ import { X, Bell, Send, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../api';
 
-const SendNotificationModal = ({ isOpen, onClose, studentId = null, studentName = "All Students" }) => {
+const SendNotificationModal = ({ 
+  isOpen, 
+  onClose, 
+  recipientId = null, 
+  recipientName = "All Recipients",
+  type = 'student' // 'student' or 'company'
+}) => {
   const [formData, setFormData] = useState({ title: '', body: '' });
   const [loading, setLoading] = useState(false);
 
@@ -14,20 +20,55 @@ const SendNotificationModal = ({ isOpen, onClose, studentId = null, studentName 
     setLoading(true);
 
     try {
-      if (studentId) {
-        // Single Student Notification
-        await api.post(`/admin/students/${studentId}/notify`, formData);
-        toast.success(`Notification sent to ${studentName}`);
-      } else {
-        // Broadcast to All
-        const res = await api.post('/admin/students/notify-all', formData);
-        toast.success(`Sent: ${res.data.successCount} Success`);
+      if (type === 'student') {
+        if (recipientId) {
+          await api.post(`/admin/students/${recipientId}/notify`, formData);
+          toast.success(`Notification sent to ${recipientName}`);
+        } else {
+          const res = await api.post('/admin/students/notify-all', formData);
+          toast.success(`Sent: ${res.data.successCount} Success`);
+        }
+      } else if (type === 'company') {
+        if (recipientId) {
+          await api.post(`/admin/companies/${recipientId}/notify`, formData);
+          toast.success(`Notification sent to ${recipientName}`);
+        } else {
+          const res = await api.post('/admin/companies/notify-all', formData);
+          toast.success(`Sent: ${res.data.successCount} Success`);
+        }
       }
+      
       onClose();
-      setFormData({ title: '', body: '' }); // Reset form
+      setFormData({ title: '', body: '' }); 
     } catch (error) {
       console.error(error);
-      toast.error(error.response?.data?.message || "Failed to send notification");
+      const errData = error.response?.data;
+
+      // Handle specific "No Token" error beautifully
+      if (errData?.code === 'NO_FCM_TOKEN') {
+        toast((t) => (
+          <div className="flex items-start gap-3 min-w-[300px]">
+            <div className="text-amber-500 bg-amber-50 p-2 rounded-full shrink-0">
+              <Bell size={20} />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-gray-800">Not Reachable</p>
+              <p className="text-sm text-gray-600 mt-1">
+                <span className="font-medium">{recipientName}</span> hasn't registered a device for notifications yet.
+              </p>
+            </div>
+            <button onClick={() => toast.dismiss(t.id)} className="text-gray-400 hover:text-gray-600">
+              <X size={18} />
+            </button>
+          </div>
+        ), { duration: 5000, position: 'top-center' });
+        
+        // Close the modal even if it failed (as per user request)
+        onClose();
+      } else {
+        // Generic Error
+        toast.error(errData?.message || "Failed to send notification");
+      }
     } finally {
       setLoading(false);
     }
@@ -52,7 +93,7 @@ const SendNotificationModal = ({ isOpen, onClose, studentId = null, studentName 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
           <div className="bg-blue-50 text-blue-700 text-xs p-3 rounded-lg font-medium">
-            To: <span className="font-bold">{studentId ? studentName : "📢 ALL STUDENTS"}</span>
+            To: <span className="font-bold">{recipientId ? recipientName : `📢 ALL ${type.toUpperCase()}S`}</span>
           </div>
 
           <div>
@@ -60,7 +101,7 @@ const SendNotificationModal = ({ isOpen, onClose, studentId = null, studentName 
             <input 
               type="text" 
               required
-              placeholder="e.g. Interview Schedule Updated"
+              placeholder="e.g. Important Update"
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition"
               value={formData.title}
               onChange={(e) => setFormData({...formData, title: e.target.value})}

@@ -1,20 +1,21 @@
 /* eslint-disable no-unused-vars */
 import React, { useEffect, useState } from 'react';
 import { 
-  Bell, Plus, Trash2, Users, Building2, Globe, X, Loader2, Eye, EyeOff
+  Bell, Plus, Trash2, Users, Building2, Globe, X, Loader2, Eye, EyeOff, Edit2
 } from 'lucide-react';
 import api from '../../lib/api';
 import { toast } from 'react-hot-toast';
 
 // --- Helper: Audience Badge ---
 const AudienceBadge = ({ audience }) => {
-  // Backend returns string "Student", "Company", etc.
+  // API returns strings: "All", "Student", "Company"
   const config = {
     Student: { color: 'bg-blue-100 text-blue-700', icon: Users },
     Company: { color: 'bg-purple-100 text-purple-700', icon: Building2 },
-    All: { color: 'bg-emerald-100 text-emerald-700', icon: Globe },
+    All:     { color: 'bg-emerald-100 text-emerald-700', icon: Globe },
   };
-  // Fallback to 'All' if mismatch
+  
+  // Fallback to 'All' if something goes wrong
   const { color, icon: Icon } = config[audience] || config.All;
 
   return (
@@ -27,21 +28,23 @@ const AudienceBadge = ({ audience }) => {
 const NoticeBoard = () => {
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [creating, setCreating] = useState(false);
   
-  // Form State (Audience Enum: 0=Student, 1=Company, 2=All)
+  // Modal & Form State
+  const [showModal, setShowModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  
+  // ✅ FIX 1: Default to 0 (All) based on your Enum
   const [formData, setFormData] = useState({
     title: '',
     content: '',
-    audience: 2 
+    audience: 0 
   });
 
   // --- Fetch Notices ---
   const fetchNotices = async () => {
     setLoading(true);
     try {
-      // Matches [HttpGet("notices")]
       const res = await api.get('/admin/notices');
       setNotices(res.data);
     } catch (error) {
@@ -55,36 +58,59 @@ const NoticeBoard = () => {
     fetchNotices();
   }, []);
 
-  // --- Create Notice ---
-  const handleCreate = async (e) => {
+  // --- Open Modal (Create vs Edit) ---
+  const openCreateModal = () => {
+    setEditingId(null);
+    setFormData({ title: '', content: '', audience: 0 }); // Reset to 'All'
+    setShowModal(true);
+  };
+
+  const openEditModal = (notice) => {
+    setEditingId(notice.noticeId);
+    
+    // ✅ FIX 2: Map String response back to Int for the form
+    let audienceInt = 0; // Default 'All'
+    if (notice.audience === 'Student') audienceInt = 1;
+    if (notice.audience === 'Company') audienceInt = 2;
+
+    setFormData({
+      title: notice.title,
+      content: notice.content,
+      audience: audienceInt
+    });
+    setShowModal(true);
+  };
+
+  // --- Submit (Create or Update) ---
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setCreating(true);
+    setSubmitting(true);
     try {
-      // Matches [HttpPost("notices")]
-      await api.post('/admin/notices', {
-        ...formData,
-        audience: parseInt(formData.audience) // Ensure integer for Enum
-      });
-      toast.success("Notice posted successfully!");
+      const payload = { ...formData, audience: parseInt(formData.audience) };
+
+      if (editingId) {
+        await api.put(`/admin/notices/${editingId}`, payload);
+        toast.success("Notice updated successfully!");
+      } else {
+        await api.post('/admin/notices', payload);
+        toast.success("Notice posted successfully!");
+      }
+
       setShowModal(false);
-      setFormData({ title: '', content: '', audience: 2 });
-      fetchNotices(); 
+      fetchNotices();
     } catch (error) {
       console.error(error);
-      toast.error("Failed to post notice");
+      toast.error(editingId ? "Failed to update notice" : "Failed to post notice");
     } finally {
-      setCreating(false);
+      setSubmitting(false);
     }
   };
 
-  // --- Toggle Visibility ---
+  // --- Other Actions ---
   const handleToggleVisibility = async (id) => {
     try {
-      // Matches [HttpPut("Notice/{id}/toggle-visibility")]
-      // Note the Capital 'N' in Notice matches your C# attribute
+      // Note: Using Uppercase 'Notice' to match your Controller route
       await api.put(`/admin/Notice/${id}/toggle-visibility`);
-      
-      // Optimistic UI Update
       setNotices(prev => prev.map(n => 
         n.noticeId === id ? { ...n, isHidden: !n.isHidden } : n
       ));
@@ -94,15 +120,10 @@ const NoticeBoard = () => {
     }
   };
 
-  // --- Delete (Soft Delete) ---
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete (hide) this notice?")) return;
+    if (!window.confirm("Are you sure you want to delete this notice?")) return;
     try {
-      // Matches [HttpDelete("notice/{id}")]
-      // Note the lowercase 'n' matches your C# attribute
       await api.delete(`/admin/notice/${id}`);
-      
-      // Remove locally
       setNotices(prev => prev.filter(n => n.noticeId !== id));
       toast.success("Notice deleted");
     } catch (error) {
@@ -120,14 +141,14 @@ const NoticeBoard = () => {
           <p className="text-gray-500 text-sm">Manage announcements for the Job Fair.</p>
         </div>
         <button 
-          onClick={() => setShowModal(true)}
+          onClick={openCreateModal}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow-sm font-medium"
         >
           <Plus size={18} /> Post Notice
         </button>
       </div>
 
-      {/* Notice List */}
+      {/* List */}
       {loading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={40} className="animate-spin text-indigo-600" />
@@ -143,7 +164,6 @@ const NoticeBoard = () => {
                   : 'bg-white border-gray-200 shadow-sm hover:shadow-md'
               }`}
             >
-              
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-3">
                   <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -168,12 +188,16 @@ const NoticeBoard = () => {
               {/* Action Buttons */}
               <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                 <button 
+                  onClick={() => openEditModal(notice)}
+                  className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition"
+                  title="Edit Notice"
+                >
+                  <Edit2 size={18} />
+                </button>
+
+                <button 
                   onClick={() => handleToggleVisibility(notice.noticeId)}
-                  className={`p-2 rounded-full transition ${
-                    notice.isHidden 
-                      ? 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50' 
-                      : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  }`}
+                  className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"
                   title={notice.isHidden ? "Make Visible" : "Hide Notice"}
                 >
                   {notice.isHidden ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -182,7 +206,7 @@ const NoticeBoard = () => {
                 <button 
                   onClick={() => handleDelete(notice.noticeId)}
                   className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"
-                  title="Delete Permanently"
+                  title="Delete"
                 >
                   <Trash2 size={18} />
                 </button>
@@ -197,25 +221,28 @@ const NoticeBoard = () => {
         </div>
       )}
 
-      {/* Create Modal */}
+      {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-              <h3 className="font-bold text-gray-800">Create New Notice</h3>
+              <h3 className="font-bold text-gray-800">
+                {editingId ? 'Edit Notice' : 'Create New Notice'}
+              </h3>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
                 <X size={20} />
               </button>
             </div>
             
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Target Audience</label>
                 <div className="grid grid-cols-3 gap-2">
+                  {/* ✅ FIX 3: Updated Values to match 0=All, 1=Student, 2=Company */}
                   {[
-                    { val: 0, label: 'Students', icon: Users },
-                    { val: 1, label: 'Companies', icon: Building2 },
-                    { val: 2, label: 'Everyone', icon: Globe },
+                    { val: 0, label: 'Everyone', icon: Globe },
+                    { val: 1, label: 'Students', icon: Users },
+                    { val: 2, label: 'Companies', icon: Building2 },
                   ].map((opt) => (
                     <button
                       key={opt.val}
@@ -266,11 +293,11 @@ const NoticeBoard = () => {
                 </button>
                 <button 
                   type="submit" 
-                  disabled={creating}
+                  disabled={submitting}
                   className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50"
                 >
-                  {creating && <Loader2 size={16} className="animate-spin" />}
-                  Post Notice
+                  {submitting && <Loader2 size={16} className="animate-spin" />}
+                  {editingId ? 'Update Notice' : 'Post Notice'}
                 </button>
               </div>
             </form>

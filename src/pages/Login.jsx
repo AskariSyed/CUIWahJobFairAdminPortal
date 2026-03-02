@@ -1,9 +1,11 @@
+/* eslint-disable no-unused-vars */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import api from '../lib/api';
 import { motion } from 'framer-motion';
+import LogoWithoutBg from '../assets/LogoWithoutBg.png';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -38,12 +40,15 @@ const Login = () => {
       localStorage.setItem('role', 'Admin'); 
       localStorage.setItem('userId', data.userId || data.UserId);
       
-      toast.success('Welcome back, Administrator');
+      const toastId = toast.success('Welcome back, Administrator', {
+        duration: 1200
+      });
 
       // 3. Redirect directly to Admin Dashboard
       setTimeout(() => {
+        toast.dismiss(toastId);
         navigate('/admin/dashboard');
-      }, 800);
+      }, 1200);
 
     } catch (error) {
       console.error(error);
@@ -56,8 +61,9 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-gray-50">
       <Toaster position="top-right" />
+      <div className="flex-1 flex">
 
       {/* Left Side - Visual & Branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-slate-900 relative overflow-hidden items-center justify-center text-white">
@@ -68,8 +74,14 @@ const Login = () => {
         </div>
 
         <div className="relative z-10 p-12 max-w-xl">
-          <div className="mb-6 inline-flex items-center justify-center p-3 bg-white/10 rounded-xl backdrop-blur-sm border border-white/10">
-            <ShieldCheck className="w-8 h-8 text-indigo-400" />
+          <div className="mb-8">
+            <div className="inline-block bg-white rounded-2xl p-4 shadow-lg">
+              <img 
+                src={LogoWithoutBg} 
+                alt="CUI Wah Job Fair Logo" 
+                className="h-32 w-auto"
+              />
+            </div>
           </div>
           <h1 className="text-5xl font-bold mb-6 leading-tight">
             Admin <br/>
@@ -92,6 +104,15 @@ const Login = () => {
           className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-gray-100"
         >
           <div className="text-center mb-10">
+            <div className="flex justify-center mb-6">
+              <div className="inline-block bg-white rounded-xl p-3 shadow-md">
+                <img 
+                  src={LogoWithoutBg} 
+                  alt="CUI Wah Job Fair Logo" 
+                  className="h-20 w-auto"
+                />
+              </div>
+            </div>
             <h2 className="text-2xl font-bold text-gray-900">Administrator Login</h2>
             <p className="text-gray-500 mt-2 text-sm">Please enter your credentials to continue</p>
           </div>
@@ -160,13 +181,8 @@ const Login = () => {
             </button>
 
           </form>
-
-          <div className="mt-8 text-center">
-             <p className="text-xs text-gray-400">
-               CUI Wah Campus &copy; 2025 Job Fair Portal
-             </p>
-          </div>
         </motion.div>
+      </div>
       </div>
     </div>
   );

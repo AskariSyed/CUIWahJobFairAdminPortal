@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Users, 
   Building2, 
@@ -27,8 +28,11 @@ import api from '../../lib/api';
 // ----------------------------------
 // Helper Component: Stat Card
 // ----------------------------------
-const StatCard = ({ title, value, icon: Icon, color, bgColor }) => (
-  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-200">
+const StatCard = ({ title, value, icon: Icon, color, bgColor, onClick }) => (
+  <div 
+    onClick={onClick}
+    className={`bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-200 ${onClick ? 'cursor-pointer hover:scale-105' : ''}`}
+  >
     <div className="flex items-center justify-between">
       <div>
         <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
@@ -45,6 +49,7 @@ const StatCard = ({ title, value, icon: Icon, color, bgColor }) => (
 // Main Dashboard Component
 // ----------------------------------
 const Dashboard = () => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -102,21 +107,24 @@ const Dashboard = () => {
           value={stats?.totalStudents} 
           icon={Users} 
           color="text-blue-600" 
-          bgColor="bg-blue-50" 
+          bgColor="bg-blue-50"
+          onClick={() => navigate('/admin/students')}
         />
         <StatCard 
           title="Companies" 
           value={stats?.totalCompanies} 
           icon={Building2} 
           color="text-purple-600" 
-          bgColor="bg-purple-50" 
+          bgColor="bg-purple-50"
+          onClick={() => navigate('/admin/companies')}
         />
         <StatCard 
           title="Total Rooms" 
           value={stats?.totalRooms} 
           icon={DoorOpen} 
           color="text-orange-600" 
-          bgColor="bg-orange-50" 
+          bgColor="bg-orange-50"
+          onClick={() => navigate('/admin/rooms')}
         />
         <StatCard 
           title="Success Rate (Hired)" 

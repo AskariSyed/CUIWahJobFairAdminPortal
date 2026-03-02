@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell 
 } from 'recharts';
@@ -13,23 +14,23 @@ import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// eslint-disable-next-line no-unused-vars
 const StatCard = ({ title, value, subtext, icon: Icon, color }) => (
-  <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-start justify-between">
+  <div className="bg-white p-2.5 rounded-lg border border-gray-100 shadow-sm flex items-start justify-between">
     <div>
-      <p className="text-sm font-medium text-gray-500">{title}</p>
-      <h3 className="text-3xl font-bold text-gray-900 mt-2">{value}</h3>
-      {subtext && <p className="text-xs text-gray-400 mt-1">{subtext}</p>}
+      <p className="text-xs font-medium text-gray-500">{title}</p>
+      <h3 className="text-lg font-bold text-gray-900 mt-1">{value}</h3>
+      {subtext && <p className="text-xs text-gray-400 mt-0.5">{subtext}</p>}
     </div>
-    <div className={`p-3 rounded-lg ${color} bg-opacity-10`}>
-      <Icon className={color.replace('bg-', 'text-')} size={24} />
+    <div className={`p-2 rounded-lg ${color} bg-opacity-10`}>
+      <Icon className={color.replace('bg-', 'text-')} size={18} />
     </div>
   </div>
 );
 
 const JobFairAnalytics = () => {
+  const location = useLocation();
   const [fairs, setFairs] = useState([]);
-  const [selectedFairId, setSelectedFairId] = useState(null);
+  const [selectedFairId, setSelectedFairId] = useState(location?.state?.jobFairId || null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false); // New state for download button
@@ -40,8 +41,11 @@ const JobFairAnalytics = () => {
       try {
         const res = await api.get('/admin/jobfairs');
         setFairs(res.data.jobFairs);
-        const active = res.data.jobFairs.find(f => f.isActive) || res.data.jobFairs[0];
-        if (active) setSelectedFairId(active.jobFairId);
+        // If no jobFairId in state, use active or first one
+        if (!selectedFairId) {
+          const active = res.data.jobFairs.find(f => f.isActive) || res.data.jobFairs[0];
+          if (active) setSelectedFairId(active.jobFairId);
+        }
       } catch (error) {
         toast.error("Failed to load job fairs");
       }
@@ -72,13 +76,17 @@ const JobFairAnalytics = () => {
   // 🖨️ PDF GENERATION LOGIC
   // ----------------------------------------------------------------------
   const handleDownloadReport = async () => {
+    if (!data) {
+      toast.error("No data available to generate report");
+      return;
+    }
+
     setDownloading(true);
     try {
-      // 1. Fetch the detailed report data
-      const res = await api.get(`/admin/jobfairs/${selectedFairId}/report`);
-      const report = res.data;
-
-      // 2. Initialize PDF
+      // Get current job fair info
+      const currentFair = fairs.find(f => f.jobFairId === selectedFairId);
+      
+      // Initialize PDF
       const doc = new jsPDF();
 
       // --- Header ---
@@ -88,8 +96,8 @@ const JobFairAnalytics = () => {
       
       doc.setFontSize(12);
       doc.setTextColor(100);
-      doc.text(`Event: ${report.semester}`, 14, 30);
-      doc.text(`Date: ${new Date(report.date).toLocaleDateString()}`, 14, 36);
+      doc.text(`Event: ${currentFair?.semester || 'N/A'}`, 14, 30);
+      doc.text(`Date: ${currentFair ? new Date(currentFair.date).toLocaleDateString() : 'N/A'}`, 14, 36);
 
       // --- Executive Summary Section ---
       doc.setFontSize(14);
@@ -97,12 +105,13 @@ const JobFairAnalytics = () => {
       doc.text("Executive Summary", 14, 50);
       
       const summaryData = [
-        ['Total Students', report.executiveSummary.totalStudents],
-        ['Participating Companies', report.executiveSummary.totalCompanies],
-        ['Interviews Conducted', report.executiveSummary.totalInterviewsCompleted],
-        ['Students Hired', report.executiveSummary.totalHired],
-        ['Students Shortlisted', report.executiveSummary.totalShortlisted],
-        ['Placement Rate', `${report.placementMetrics.studentPlacementRate}%`]
+        ['Total Students', data.overallStats.totalStudents],
+        ['Participating Companies', data.overallStats.totalCompanies],
+        ['Total Job Openings', data.overallStats.totalJobs],
+        ['Interviews Conducted', data.overallStats.totalInterviews],
+        ['Students Hired', data.interviewStats.hired],
+        ['Students Shortlisted', data.interviewStats.shortlisted],
+        ['Hiring Rate', `${data.interviewStats.hiringRate}%`]
       ];
 
       autoTable(doc, {
@@ -120,40 +129,57 @@ const JobFairAnalytics = () => {
       doc.setFontSize(14);
       doc.text("Top Recruiters", 14, finalY);
 
-      const recruiterData = report.topRecruiters.map(c => [
+      const recruiterData = (data?.companyParticipation || []).slice(0, 10).map(c => [
         c.companyName, 
-        c.industry, 
-        c.hired, 
-        c.shortlisted
+        c.totalInterviews, 
+        c.hiredCount
       ]);
 
       autoTable(doc, {
         startY: finalY + 5,
-        head: [['Company', 'Industry', 'Hires', 'Shortlisted']],
+        head: [['Company', 'Interviews', 'Hires']],
         body: recruiterData,
         theme: 'grid',
         headStyles: { fillColor: [16, 185, 129] }, // Emerald header
       });
 
-      // --- Department Placement Table ---
+      // --- Department Performance Table ---
       finalY = doc.lastAutoTable.finalY + 15;
       doc.setFontSize(14);
       doc.text("Department Performance", 14, finalY);
 
-      const deptData = report.departmentPlacement.map(d => [
+      const deptData = (data?.studentsByDepartment || []).map(d => [
         d.department,
-        d.totalStudents,
-        d.placed,
-        `${d.placementRate}%`,
-        d.averageCGPA
+        d.count,
+        d.hired
       ]);
 
       autoTable(doc, {
         startY: finalY + 5,
-        head: [['Department', 'Registered', 'Hired', 'Success Rate', 'Avg CGPA']],
+        head: [['Department', 'Total Students', 'Hired']],
         body: deptData,
         theme: 'grid',
         headStyles: { fillColor: [245, 158, 11] }, // Amber header
+      });
+
+      // --- Top Students Table ---
+      finalY = doc.lastAutoTable.finalY + 15;
+      doc.setFontSize(14);
+      doc.text("Top Performing Students", 14, finalY);
+
+      const studentData = (data?.topStudents || []).slice(0, 10).map(s => [
+        s.name,
+        s.department,
+        s.cgpa.toFixed(2),
+        s.hired ? 'Yes' : 'No'
+      ]);
+
+      autoTable(doc, {
+        startY: finalY + 5,
+        head: [['Name', 'Department', 'CGPA', 'Hired']],
+        body: studentData,
+        theme: 'grid',
+        headStyles: { fillColor: [99, 102, 241] }, // Indigo header
       });
 
       // --- Footer ---
@@ -165,8 +191,9 @@ const JobFairAnalytics = () => {
         doc.text(`Page ${i} of ${pageCount} - Generated by JobFair Portal`, 105, 290, { align: 'center' });
       }
 
-      // 3. Save File
-      doc.save(`JobFair_Report_${report.semester.replace(/\s+/g, '_')}.pdf`);
+      // Save File
+      const fileName = `JobFair_Report_${currentFair?.semester.replace(/\s+/g, '_') || 'Export'}_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`;
+      doc.save(fileName);
       toast.success("Report downloaded successfully!");
 
     } catch (error) {
@@ -321,7 +348,7 @@ const JobFairAnalytics = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {data.companyParticipation.slice(0, 5).map((company) => (
+                    {(data?.companyParticipation || []).slice(0, 5).map((company) => (
                       <tr key={company.companyId} className="hover:bg-gray-50">
                         <td className="px-5 py-3 font-medium text-gray-900">{company.companyName}</td>
                         <td className="px-5 py-3 text-right text-gray-600">{company.totalInterviews}</td>
@@ -350,7 +377,7 @@ const JobFairAnalytics = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {data.topStudents.slice(0, 5).map((student) => (
+                    {(data?.topStudents || []).slice(0, 5).map((student) => (
                       <tr key={student.studentId} className="hover:bg-gray-50">
                         <td className="px-5 py-3 font-medium text-gray-900">{student.name}</td>
                         <td className="px-5 py-3 text-gray-600">{student.department}</td>

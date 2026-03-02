@@ -2,12 +2,33 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Users, Upload, Download, Plus, Trash2, 
-  Search, ArrowUpDown, RotateCcw, FileText
+  Search, ArrowUpDown, RotateCcw, FileText,
+  CheckCircle, AlertCircle, LayoutGrid
 } from 'lucide-react';
 import api from '../../lib/api';
 import { toast } from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { useNavigate } from 'react-router-dom';
+
+
+// ----------------------------------------------------------------------
+// Helper: Stats Card
+// ----------------------------------------------------------------------
+const StatsCard = ({ title, value, icon: Icon, color, onClick }) => (
+  <div 
+    onClick={onClick}
+    className={`bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center gap-4 transition-transform hover:scale-[1.02] ${onClick ? 'cursor-pointer hover:shadow-md' : ''}`}
+  >
+    <div className={`p-3 rounded-full ${color} bg-opacity-10 text-${color.split('-')[1]}-600`}>
+      <Icon size={24} />
+    </div>
+    <div>
+      <p className="text-sm text-gray-500 font-medium">{title}</p>
+      <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
+    </div>
+  </div>
+);
 
 // ----------------------------------------------------------------------
 // Helper: Status Badge (Updated for C# Enum)
@@ -84,6 +105,7 @@ const AddRoomModal = ({ onClose, onSuccess }) => {
 // Main Page Component
 // ----------------------------------------------------------------------
 const RoomsManagement = () => {
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -103,11 +125,18 @@ const RoomsManagement = () => {
     try {
       const [roomsRes, companiesRes] = await Promise.all([
         api.get('/admin/rooms'),
-        api.get('/admin/companies')
+        api.get('/admin/companies?pageSize=1000') // Fetch all companies for dropdown
       ]);
       setRooms(roomsRes.data);
-      setCompanies(companiesRes.data);
+      
+      // Handle paginated response for companies
+      const companiesData = Array.isArray(companiesRes.data) 
+        ? companiesRes.data 
+        : (companiesRes.data.companies || companiesRes.data.participations || []);
+        
+      setCompanies(companiesData);
     } catch (error) {
+      console.error(error);
       toast.error("Failed to load data");
     } finally {
       setLoading(false);
@@ -153,6 +182,16 @@ const RoomsManagement = () => {
 
     return result;
   }, [rooms, filters, sortConfig]);
+
+  // Calculate Stats
+  const stats = useMemo(() => {
+    return {
+      total: rooms.length,
+      vacant: rooms.filter(r => r.status === 0).length,
+      tentative: rooms.filter(r => r.status === 1).length,
+      allocated: rooms.filter(r => r.status === 2).length,
+    };
+  }, [rooms]);
 
   // --- PDF Generation Logic ---
   const downloadPdfReport = () => {
@@ -235,6 +274,16 @@ const RoomsManagement = () => {
     }
   };
 
+  const confirmRoomAllotment = async (roomId) => {
+    try {
+      await api.put(`/admin/rooms/${roomId}/confirm-allotment`);
+      toast.success("Room allotment confirmed.");
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data || "Failed to confirm allotment");
+    }
+  };
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -270,49 +319,91 @@ const RoomsManagement = () => {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in pb-20">
+    <div className="space-y-8 animate-fade-in pb-20">
       
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Room Allocation</h1>
-          <p className="text-gray-500 text-sm">Manage venue capacity and company assignments.</p>
+      {/* Header & Stats */}
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Room Allocation</h1>
+            <p className="text-gray-500 mt-1">Manage venue capacity and company assignments efficiently.</p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={downloadPdfReport} className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center transition shadow-sm">
+              <FileText size={16} className="mr-2 text-indigo-600" /> PDF Report
+            </button>
+            <button onClick={downloadTemplate} className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center transition shadow-sm">
+              <Download size={16} className="mr-2 text-gray-500" /> Template
+            </button>
+            <label className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center cursor-pointer transition shadow-sm">
+              <Upload size={16} className="mr-2 text-gray-500" /> Bulk Upload 
+              <input type="file" accept=".csv, .xlsx" className="hidden" onChange={handleFileUpload} />
+            </label>
+            <button onClick={() => setShowAddModal(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium flex items-center shadow-md transition">
+              <Plus size={18} className="mr-1" /> Add Room
+            </button>
+          </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={downloadPdfReport} className="px-3 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg hover:bg-indigo-100 text-sm font-medium flex items-center transition">
-            <FileText size={16} className="mr-2" /> PDF Report
-          </button>
-          <button onClick={downloadTemplate} className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center transition">
-            <Download size={16} className="mr-2" /> Template
-          </button>
-          <label className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center cursor-pointer transition">
-            <Upload size={16} className="mr-2" /> Bulk Upload 
-            <input type="file" accept=".csv, .xlsx" className="hidden" onChange={handleFileUpload} />
-          </label>
-          <button onClick={() => setShowAddModal(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium flex items-center shadow-sm transition">
-            <Plus size={18} className="mr-1" /> Add Room
-          </button>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatsCard 
+            title="Total Rooms" 
+            value={stats.total} 
+            icon={LayoutGrid} 
+            color="bg-gray-100 text-gray-600" 
+            onClick={() => setFilters({...filters, status: 'all'})}
+          />
+          <StatsCard 
+            title="Vacant" 
+            value={stats.vacant} 
+            icon={CheckCircle} 
+            color="bg-emerald-100 text-emerald-600" 
+            onClick={() => setFilters({...filters, status: 'vacant'})}
+          />
+          <StatsCard 
+            title="Tentative" 
+            value={stats.tentative} 
+            icon={AlertCircle} 
+            color="bg-amber-100 text-amber-600" 
+            onClick={() => setFilters({...filters, status: 'tentative'})}
+          />
+          <StatsCard 
+            title="Allocated" 
+            value={stats.allocated} 
+            icon={Users} 
+            color="bg-indigo-100 text-indigo-600" 
+            onClick={() => setFilters({...filters, status: 'allocated'})}
+          />
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col lg:flex-row gap-4 items-end lg:items-center justify-between">
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col lg:flex-row gap-4 items-end lg:items-center justify-between sticky top-0 z-10">
         <div className="flex flex-wrap gap-3 w-full lg:w-auto">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
-            <input type="text" placeholder="Search Room..." className="pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-36" value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})} />
-          </div>
-          <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-gray-50">
-            <span className="text-xs font-medium text-gray-500 uppercase">Seats &ge;</span>
-            <input type="number" placeholder="0" className="w-12 bg-transparent outline-none text-sm font-bold text-gray-700" value={filters.minCapacity} onChange={e => setFilters({...filters, minCapacity: e.target.value})} />
-          </div>
-          <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-gray-50">
-            <span className="text-xs font-medium text-gray-500 uppercase">Seats &le;</span>
-            <input type="number" placeholder="Max" className="w-12 bg-transparent outline-none text-sm font-bold text-gray-700" value={filters.maxCapacity} onChange={e => setFilters({...filters, maxCapacity: e.target.value})} />
+          <div className="relative group">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
+            <input 
+              type="text" 
+              placeholder="Search Room..." 
+              className="pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none w-48 transition-all" 
+              value={filters.search} 
+              onChange={e => setFilters({...filters, search: e.target.value})} 
+            />
           </div>
           
-          {/* ✅ UPDATED DROPDOWN OPTIONS */}
-          <select className="border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
+          <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500 transition-all">
+            <span className="text-xs font-medium text-gray-500 uppercase">Seats</span>
+            <input type="number" placeholder="Min" className="w-10 bg-transparent outline-none text-sm font-bold text-gray-700" value={filters.minCapacity} onChange={e => setFilters({...filters, minCapacity: e.target.value})} />
+            <span className="text-gray-300">|</span>
+            <input type="number" placeholder="Max" className="w-10 bg-transparent outline-none text-sm font-bold text-gray-700" value={filters.maxCapacity} onChange={e => setFilters({...filters, maxCapacity: e.target.value})} />
+          </div>
+          
+          <select 
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white cursor-pointer hover:border-gray-300 transition-colors" 
+            value={filters.status} 
+            onChange={e => setFilters({...filters, status: e.target.value})}
+          >
             <option value="all">All Statuses</option>
             <option value="vacant">Vacant Only</option>
             <option value="tentative">Tentative Only</option>
@@ -335,44 +426,130 @@ const RoomsManagement = () => {
         </div>
       </div>
 
-      <p className="text-sm text-gray-500">Showing <strong>{processedRooms.length}</strong> rooms</p>
-
       {/* Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {loading ? <p>Loading rooms...</p> : processedRooms.map((room) => (
-          <div key={room.roomId} className={`relative bg-white rounded-xl border shadow-sm p-6 transition-all ${room.status === 2 ? 'border-l-4 border-l-indigo-500' : room.status === 1 ? 'border-l-4 border-l-amber-400' : 'border-l-4 border-l-emerald-400'}`}>
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">{room.roomName}</h3>
-                <div className="flex items-center gap-2 mt-1"><Users size={14} className="text-gray-400" /><span className="text-sm text-gray-500 font-bold">{room.capacity} Seats</span></div>
-              </div>
-              <RoomStatusBadge status={room.status} />
-            </div>
-            <div className="mt-6 pt-4 border-t border-gray-100">
-              {room.status === 2 ? ( // Allocated
-                <div className="flex justify-between items-center bg-indigo-50 p-3 rounded-lg">
-                  <div><p className="text-xs text-indigo-600 font-semibold uppercase">Occupied By</p><p className="font-medium text-indigo-900 truncate max-w-[150px]">{room.companyName}</p></div>
-                  <button onClick={() => handleDeallocate(room.roomId)} className="p-2 bg-white text-red-500 hover:text-red-700 rounded-md shadow-sm transition"><Trash2 size={16} /></button>
-                </div>
+      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Room</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Capacity</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Company</th>
+                <th className="px-6 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {loading ? (
+                [...Array(6)].map((_, i) => (
+                  <tr key={i} className="animate-pulse bg-white hover:bg-gray-50">
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-40"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 ml-auto"></div></td>
+                  </tr>
+                ))
+              ) : processedRooms.length > 0 ? (
+                processedRooms.map((room) => (
+                  <tr key={room.roomId} className="bg-white hover:bg-gray-50 transition-colors group">
+                    <td className="px-6 py-4">
+                      <p className="font-bold text-gray-900 group-hover:text-indigo-600 transition-colors">{room.roomName}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <Users size={14} className="text-gray-400" />
+                        <span className="text-sm text-gray-600 font-medium">{room.capacity} Seats</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <RoomStatusBadge status={room.status} />
+                    </td>
+                    <td className="px-6 py-4">
+                      {room.status === 2 || room.status === 1 ? (
+                        <div className="flex items-center gap-2">
+                          <button 
+                            className="text-sm font-semibold text-indigo-700 hover:underline"
+                            onClick={() => room.companyId && navigate(`/admin/companies/${room.companyId}`)}
+                            title={room.companyName}
+                          >
+                            {room.companyName || 'Unknown Company'}
+                          </button>
+                          {typeof room.companyRepsCount === 'number' && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-700">
+                              Reps: {room.companyRepsCount}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-gray-500">-</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        {room.status === 0 ? (
+                          allocatingRoomId === room.roomId ? (
+                            <div className="flex gap-2 items-center">
+                              <select 
+                                className="text-sm px-2 py-1 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" 
+                                onChange={(e) => handleAllocate(room.roomId, e.target.value)} 
+                                defaultValue=""
+                                autoFocus
+                              >
+                                <option value="" disabled>Select...</option>
+                                {(companies || []).filter(c => !c.roomName).map(c => (
+                                  <option key={c.companyId} value={c.companyId}>
+                                    {(c.name || c.companyName)}{typeof c.repsCount === 'number' ? ` (Reps: ${c.repsCount})` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                              <button onClick={() => setAllocatingRoomId(null)} className="text-gray-400 hover:text-gray-600 px-1">✕</button>
+                            </div>
+                          ) : (
+                            <button 
+                              onClick={() => setAllocatingRoomId(room.roomId)} 
+                              className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                            >
+                              Assign
+                            </button>
+                          )
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            {room.status === 1 && (
+                              <button 
+                                onClick={() => confirmRoomAllotment(room.roomId)} 
+                                className="px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors" 
+                                title="Confirm Allotment"
+                              >
+                                Confirm Allotment
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => handleDeallocate(room.roomId)} 
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" 
+                              title="Remove Company"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
               ) : (
-                <div>
-                  {allocatingRoomId === room.roomId ? (
-                    <div className="flex gap-2 animate-fade-in">
-                      <select className="flex-1 text-sm border rounded-lg px-2 py-1 outline-none" onChange={(e) => handleAllocate(room.roomId, e.target.value)} defaultValue="">
-                        <option value="" disabled>Select Company</option>
-                        {companies.filter(c => !c.roomName).map(c => <option key={c.companyId} value={c.companyId}>{c.name}</option>)}
-                      </select>
-                      <button onClick={() => setAllocatingRoomId(null)} className="text-gray-500 hover:text-gray-700">✕</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setAllocatingRoomId(room.roomId)} className="w-full py-2 border border-dashed border-gray-300 text-gray-500 rounded-lg hover:bg-gray-50 hover:text-indigo-600 transition flex items-center justify-center gap-2 text-sm font-medium"><Plus size={16} /> Assign Company</button>
-                  )}
-                </div>
+                <tr>
+                  <td colSpan="5" className="px-6 py-16 text-center">
+                    <Search size={48} className="text-gray-300 mb-4 mx-auto" />
+                    <p className="text-lg font-medium text-gray-600">No rooms found</p>
+                    <p className="text-sm text-gray-400">Try adjusting your filters or search query.</p>
+                    <button onClick={clearFilters} className="mt-4 text-indigo-600 hover:text-indigo-800 font-medium text-sm">Clear Filters</button>
+                  </td>
+                </tr>
               )}
-            </div>
-          </div>
-        ))}
-        {processedRooms.length === 0 && <div className="col-span-full text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300 text-gray-500">No rooms match your filters.</div>}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {showAddModal && <AddRoomModal onClose={() => setShowAddModal(false)} onSuccess={fetchData} />}
