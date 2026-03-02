@@ -1,11 +1,16 @@
 import axios from 'axios';
 
 // 1. Define the Base URL (Root of your .NET Backend)
-// Change this ONE place if your port changes (e.g. to 5158 for HTTP)
-export const BACKEND_URL = 'http://192.168.137.1:5158'; 
+// In HTTPS dev mode prefer same-origin + Vite proxy to avoid mixed-content.
+export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+
+const isInsecureBackendOnSecurePage =
+  typeof window !== 'undefined' &&
+  window.location.protocol === 'https:' &&
+  BACKEND_URL.startsWith('http://');
 
 // 2. Define the API URL
-const API_URL = `${BACKEND_URL}/api`;
+const API_URL = (BACKEND_URL && !isInsecureBackendOnSecurePage) ? `${BACKEND_URL}/api` : '/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -63,6 +68,12 @@ export const getCompaniesForJobFair = (jobFairId) => {
 
 export const startAttendanceSession = (jobFairId) => {
   return api.post(`/Attendance/start-session`, {
+    jobFairId
+  });
+};
+
+export const generateDailyAttendanceQr = (jobFairId) => {
+  return api.post(`/Attendance/generate-daily-qr`, {
     jobFairId
   });
 };

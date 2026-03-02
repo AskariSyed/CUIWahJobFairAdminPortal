@@ -23,6 +23,7 @@ import NoticeBoard from './pages/admin/NoticeBoard';
 import CompanyDetail from './pages/admin/CompanyDetail';
 import AttendanceManagement from './pages/admin/AttendanceManagement';
 import SurveyResponses from './pages/admin/SurveyResponses';
+import CompanySurveyDetail from './pages/admin/CompanySurveyDetail';
 
 
 // ----------------------------------------------------------------------
@@ -90,6 +91,7 @@ function App() {
           <Route path="notices" element={<NoticeBoard />} />
           <Route path="attendance" element={<AttendanceManagement />} />
           <Route path="surveys" element={<SurveyResponses />} />
+          <Route path="surveys/company/:companyId" element={<CompanySurveyDetail />} />
           
           {/* Add more admin routes here later (e.g., Companies, Rooms) */}
         </Route>

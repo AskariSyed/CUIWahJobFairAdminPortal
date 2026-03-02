@@ -175,6 +175,17 @@ const StudentDetail = () => {
               <a href={`mailto:${data.contactDetails?.email}`} className="flex items-center justify-center gap-2 w-full py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition shadow-md shadow-indigo-200">
                 <Mail size={16} /> Send Email
               </a>
+
+              {(data.cvUrl || data.CvUrl) && (
+                <a
+                  href={getImageUrl(data.cvUrl || data.CvUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
+                >
+                  <Award size={16} /> Download CV
+                </a>
+              )}
               
               {data.contactDetails?.phone && (
                 <a href={`tel:${data.contactDetails?.phone}`} className="flex items-center justify-center gap-2 w-full py-2.5 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition">

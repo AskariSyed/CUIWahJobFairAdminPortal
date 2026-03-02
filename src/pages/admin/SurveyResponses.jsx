@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars */
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   Download, Filter, Search, Calendar, Building2, FileText,
   ChevronDown, BarChart3, Eye, RotateCcw, MessageSquare, Coffee, Layout, Award
@@ -8,7 +8,9 @@ import api from '../../lib/api';
 import { toast } from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { useNavigate } from 'react-router-dom';
 
 // Survey question labels
 const SURVEY_QUESTIONS = {
@@ -46,6 +48,28 @@ const LIKERT_COLORS = {
 };
 
 const CDC_COLORS = ['#10B981', '#F59E0B', '#EF4444']; // Good, Average, Bad
+
+const normalizeResponses = (responses) => {
+  if (!responses || typeof responses !== 'object') return responses;
+
+  const normalized = { ...responses };
+
+  Object.entries(responses).forEach(([key, value]) => {
+    const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
+    if (normalized[pascalKey] === undefined) {
+      normalized[pascalKey] = value;
+    }
+
+    if (/^peO\d+_Q\d+$/i.test(key)) {
+      const peoKey = key.replace(/^peO/i, 'PEO');
+      if (normalized[peoKey] === undefined) {
+        normalized[peoKey] = value;
+      }
+    }
+  });
+
+  return normalized;
+};
 
 // Survey Response Details Modal
 const SurveyDetailsModal = ({ survey, onClose }) => {
@@ -107,12 +131,17 @@ const SurveyDetailsModal = ({ survey, onClose }) => {
 
 // Main Component
 const SurveyResponses = () => {
+  const navigate = useNavigate();
   const [surveys, setSurveys] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSurvey, setSelectedSurvey] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [activeView, setActiveView] = useState('list'); // list, cdc-stats, dept-stats
+  const cdcChartsRef = useRef(null);
+  const deptChartsRef = useRef(null);
+  const cdcExportRef = useRef(null);
+  const deptExportRef = useRef(null);
 
   const [filters, setFilters] = useState({
     surveyType: 'all', // all, CDC, Department
@@ -128,7 +157,12 @@ const SurveyResponses = () => {
         api.get('/admin/companies?pageSize=1000')
       ]);
 
-      setSurveys(surveysRes.data || []);
+      const mappedSurveys = (surveysRes.data || []).map((survey) => ({
+        ...survey,
+        responses: normalizeResponses(survey.responses)
+      }));
+
+      setSurveys(mappedSurveys);
 
       // Extract companies from paginated response
       const companiesData = Array.isArray(companiesRes.data)
@@ -192,19 +226,33 @@ const SurveyResponses = () => {
     }
 
     const surveyType = filters.surveyType === 'all' ? 'All' : filters.surveyType;
+    const toCsvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+    const cdcKeys = Object.keys(SURVEY_QUESTIONS.CDC);
+    const deptKeys = Object.keys(SURVEY_QUESTIONS.Department);
+    const orderedKeys = [...cdcKeys, ...deptKeys];
+    const questionColumns = orderedKeys.map((key) => SURVEY_QUESTIONS.CDC[key] || SURVEY_QUESTIONS.Department[key]);
+
+    const header = ['Company Name', 'Survey Type', 'Submitted Date', ...questionColumns];
+
+    const rows = processedSurveys.map((survey) => {
+      const responses = survey.responses || {};
+      const valuesByKey = orderedKeys.map((key) => {
+        const value = responses[key];
+        return value === null || value === undefined ? '' : value;
+      });
+
+      return [
+        survey.companyName,
+        survey.type,
+        new Date(survey.submittedAt).toLocaleString(),
+        ...valuesByKey
+      ];
+    });
+
     const csvContent = [
-      ['Company Name', 'Survey Type', 'Submitted Date', 'Question', 'Response'].join(','),
-      ...processedSurveys.flatMap(survey =>
-        Object.entries(survey.responses || {}).map(([question, response]) =>
-          [
-            `"${survey.companyName}"`,
-            survey.type,
-            new Date(survey.submittedAt).toLocaleString(),
-            `"${SURVEY_QUESTIONS[survey.type]?.[question] || question}"`,
-            `"${String(response || '').replace(/"/g, '""')}"`
-          ].join(',')
-        )
-      )
+      header.map(toCsvCell).join(','),
+      ...rows.map((row) => row.map(toCsvCell).join(','))
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -218,7 +266,7 @@ const SurveyResponses = () => {
   };
 
   // Download PDF Report
-  const downloadPDFReport = () => {
+  const downloadPDFReport = async () => {
     if (processedSurveys.length === 0) {
       toast.error("No surveys to download");
       return;
@@ -241,12 +289,12 @@ const SurveyResponses = () => {
       survey.companyName,
       survey.type,
       new Date(survey.submittedAt).toLocaleDateString(),
-      'View Details'
+      Object.keys(survey.responses || {}).length
     ]);
 
     autoTable(doc, {
       startY: 42,
-      head: [['Company', 'Type', 'Submitted', 'Action']],
+      head: [['Company', 'Type', 'Submitted', 'Responses']],
       body: tableData,
       theme: 'striped',
       headStyles: { fillColor: [79, 70, 229] },
@@ -259,13 +307,181 @@ const SurveyResponses = () => {
       }
     });
 
+    const addChartSection = async (title, elementRef) => {
+      if (!elementRef?.current) return;
+
+      const canvas = await html2canvas(elementRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const imgWidth = 180;
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let y = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 12 : 55;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      if (y + imgHeight > pageHeight - 15) {
+        doc.addPage();
+        y = 20;
+      }
+
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.text(title, 14, y - 4);
+      doc.addImage(imgData, 'PNG', 14, y, imgWidth, imgHeight);
+    };
+
+    await addChartSection('CDC Feedback Graphs', cdcExportRef);
+    await addChartSection('Department Analysis Graphs', deptExportRef);
+
     doc.save(`Survey_Responses_${surveyType}_${new Date().toISOString().split('T')[0]}.pdf`);
     toast.success("PDF downloaded successfully!");
   };
 
+  const downloadAllCompanyReports = async () => {
+    if (surveys.length === 0) {
+      toast.error('No survey data available for bulk export');
+      return;
+    }
+
+    const loadingToastId = toast.loading('Preparing bulk company reports...');
+
+    try {
+      const questionRowsByType = (surveyItems, surveyType) => {
+        const labels = SURVEY_QUESTIONS[surveyType] || {};
+        return surveyItems.flatMap((surveyItem) =>
+          Object.entries(labels).map(([key, label]) => ([
+            new Date(surveyItem.submittedAt).toLocaleString(),
+            label,
+            String(surveyItem.responses?.[key] ?? 'N/A')
+          ]))
+        );
+      };
+
+      const companyLookup = new Map(companies.map((company) => [company.name?.trim().toLowerCase(), company.companyId]));
+
+      const uniqueCompanies = Array.from(
+        surveys.reduce((map, surveyItem) => {
+          const normalizedName = (surveyItem.companyName || '').trim();
+          if (!normalizedName) return map;
+
+          const fallbackCompanyId = companyLookup.get(normalizedName.toLowerCase());
+          const resolvedCompanyId = surveyItem.companyId || fallbackCompanyId;
+          const key = resolvedCompanyId ? `id-${resolvedCompanyId}` : `name-${normalizedName.toLowerCase()}`;
+
+          if (!map.has(key)) {
+            map.set(key, { companyId: resolvedCompanyId, companyName: normalizedName });
+          }
+
+          return map;
+        }, new Map()).values()
+      );
+
+      if (uniqueCompanies.length === 0) {
+        toast.dismiss(loadingToastId);
+        toast.error('No companies found for bulk export');
+        return;
+      }
+
+      const doc = new jsPDF();
+
+      for (let index = 0; index < uniqueCompanies.length; index++) {
+        const companyItem = uniqueCompanies[index];
+
+        if (index > 0) {
+          doc.addPage();
+        }
+
+        let details = null;
+        if (companyItem.companyId) {
+          try {
+            const detailRes = await api.get(`/admin/companies/${companyItem.companyId}/details`);
+            details = detailRes.data;
+          } catch {
+            details = null;
+          }
+        }
+
+        const companySurveyItems = surveys.filter((surveyItem) => {
+          if (companyItem.companyId && surveyItem.companyId) {
+            return String(surveyItem.companyId) === String(companyItem.companyId);
+          }
+          return (surveyItem.companyName || '').trim().toLowerCase() === companyItem.companyName.toLowerCase();
+        });
+
+        const cdcItems = companySurveyItems.filter((s) => s.type === 'CDC');
+        const deptItems = companySurveyItems.filter((s) => s.type === 'Department');
+
+        doc.setFontSize(16);
+        doc.setTextColor(37, 99, 235);
+        doc.text(details?.name || companyItem.companyName || 'Company', 14, 16);
+
+        doc.setFontSize(9);
+        doc.setTextColor(90);
+        doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 22);
+
+        autoTable(doc, {
+          startY: 26,
+          head: [['Field', 'Value']],
+          body: [
+            ['Company Name', details?.name || companyItem.companyName || 'N/A'],
+            ['Contact', `${details?.contactDetails?.email || 'N/A'} | ${details?.contactDetails?.phone || 'N/A'}`],
+            ['Focal Person', `${details?.focalPerson?.name || 'N/A'} | ${details?.focalPerson?.email || 'N/A'} | ${details?.focalPerson?.phone || 'N/A'}`],
+            ['Room / Reps', `${details?.room?.roomName || 'Not Allocated'} | Reps: ${details?.repsCount ?? 0}`],
+            ['Interview Summary', `Interviewed: ${details?.interviewStats?.totalInterviews ?? 0} | Called: ${details?.scheduledInterviews?.length ?? 0} | Hired: ${details?.interviewStats?.hired ?? 0} | Shortlisted: ${details?.interviewStats?.shortlisted ?? 0}`],
+          ],
+          theme: 'grid',
+          headStyles: { fillColor: [37, 99, 235] },
+          styles: { fontSize: 8, cellPadding: 2.5 },
+          columnStyles: {
+            0: { cellWidth: 42 },
+            1: { cellWidth: 145 }
+          }
+        });
+
+        autoTable(doc, {
+          startY: (doc.lastAutoTable?.finalY || 30) + 8,
+          head: [['CDC Submitted At', 'Question', 'Response']],
+          body: questionRowsByType(cdcItems, 'CDC').length
+            ? questionRowsByType(cdcItems, 'CDC')
+            : [['-', 'No CDC response submitted', '-']],
+          theme: 'striped',
+          headStyles: { fillColor: [79, 70, 229] },
+          styles: { fontSize: 7 }
+        });
+
+        autoTable(doc, {
+          startY: (doc.lastAutoTable?.finalY || 30) + 8,
+          head: [['Department Submitted At', 'Question', 'Response']],
+          body: questionRowsByType(deptItems, 'Department').length
+            ? questionRowsByType(deptItems, 'Department')
+            : [['-', 'No Department response submitted', '-']],
+          theme: 'striped',
+          headStyles: { fillColor: [245, 158, 11] },
+          styles: { fontSize: 7 }
+        });
+      }
+
+      doc.save(`All_Company_Survey_Profile_Reports_${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.dismiss(loadingToastId);
+      toast.success('Bulk company reports downloaded');
+    } catch (error) {
+      toast.dismiss(loadingToastId);
+      toast.error('Failed to generate bulk company reports');
+    }
+  };
+
   const handleViewDetails = (survey) => {
-    setSelectedSurvey(survey);
-    setShowDetailsModal(true);
+    const resolvedCompanyId = survey.companyId || companies.find((c) => c.name === survey.companyName)?.companyId;
+
+    if (!resolvedCompanyId) {
+      toast.error('Company profile not found for this survey');
+      return;
+    }
+
+    navigate(`/admin/surveys/company/${resolvedCompanyId}`);
   };
 
   const clearFilters = () => {
@@ -312,6 +528,12 @@ const SurveyResponses = () => {
             <p className="text-gray-500 mt-1">View, analyze, and download all survey responses and feedback from companies.</p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={downloadAllCompanyReports}
+              className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center transition shadow-sm"
+            >
+              <Download size={16} className="mr-2 text-blue-600" /> All Company Reports
+            </button>
             <button
               onClick={downloadPDFReport}
               className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium flex items-center transition shadow-sm"
@@ -493,7 +715,7 @@ const SurveyResponses = () => {
                         onClick={() => handleViewDetails(survey)}
                         className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1 ml-auto"
                       >
-                        <Eye size={14} /> View
+                        <Eye size={14} /> Show
                       </button>
                     </td>
                   </tr>
@@ -516,7 +738,7 @@ const SurveyResponses = () => {
 
       {/* VIEW 2: CDC Feedback Stats */}
       {activeView === 'cdc-stats' && (
-      <div className="space-y-8">
+      <div className="space-y-8" ref={cdcChartsRef}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* FYP Quality */}
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -620,7 +842,7 @@ const SurveyResponses = () => {
 
       {/* VIEW 3: Department Feedback Stats */}
       {activeView === 'dept-stats' && (
-      <div className="space-y-8">
+      <div className="space-y-8" ref={deptChartsRef}>
         {/* PEO-1 Questions */}
         <div>
           <h2 className="text-xl font-bold text-gray-900 mb-4">PEO-1: Technical Knowledge & Creativity</h2>
@@ -831,13 +1053,208 @@ const SurveyResponses = () => {
       </div>
       )}
 
-      {/* Details Modal */}
-      {showDetailsModal && (
-        <SurveyDetailsModal
-          survey={selectedSurvey}
-          onClose={() => setShowDetailsModal(false)}
-        />
-      )}
+      {/* Hidden export-only chart containers for PDF generation */}
+      <div className="fixed -left-[99999px] top-0 w-[1400px] bg-white p-6 pointer-events-none" aria-hidden="true">
+        <div ref={cdcExportRef} className="space-y-6">
+          <h2 className="text-xl font-bold text-gray-900">CDC Feedback</h2>
+          <div className="grid grid-cols-3 gap-6">
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <div className="font-bold mb-3">FYP Quality</div>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={getCDCStats('FypQuality')} innerRadius={45} outerRadius={75} paddingAngle={5} dataKey="value">
+                      {getCDCStats('FypQuality').map((entry, index) => (
+                        <Cell key={`export-cdc-fyp-${index}`} fill={CDC_COLORS[index]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <div className="font-bold mb-3">Arrangement Quality</div>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={getCDCStats('ArrangementQuality')} innerRadius={45} outerRadius={75} paddingAngle={5} dataKey="value">
+                      {getCDCStats('ArrangementQuality').map((entry, index) => (
+                        <Cell key={`export-cdc-arr-${index}`} fill={CDC_COLORS[index]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <div className="font-bold mb-3">Lunch Quality</div>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={getCDCStats('LunchQuality')} innerRadius={45} outerRadius={75} paddingAngle={5} dataKey="value">
+                      {getCDCStats('LunchQuality').map((entry, index) => (
+                        <Cell key={`export-cdc-lunch-${index}`} fill={CDC_COLORS[index]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div ref={deptExportRef} className="space-y-6 mt-10">
+          <h2 className="text-xl font-bold text-gray-900">Department Analysis</h2>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-1 Q1: Technical Knowledge</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO1_Q1')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#3B82F6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-1 Q2: Analysis & Investigation</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO1_Q2')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#10B981" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-1 Q3: Design & Implementation</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO1_Q3')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#F59E0B" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-2 Q1: Desire to Learn</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO2_Q1')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#EF5350" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-2 Q2: Entrepreneurship</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO2_Q2')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#8B5CF6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-3 Q1: Ethics Awareness</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO3_Q1')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#06B6D4" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-3 Q2: Communication Skills</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO3_Q2')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#EC4899" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-4 Q1: Societal Contribution</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO4_Q1')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#14B8A6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-4 Q2: Economic Growth</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO4_Q2')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#F97316" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-gray-200">
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm">PEO-4 Q3: Innovation Support</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={getDeptStats('PEO4_Q3')}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#A855F7" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

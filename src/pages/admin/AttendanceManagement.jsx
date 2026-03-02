@@ -69,11 +69,11 @@ const AttendanceManagement = () => {
     try {
       setLoading(true);
       const jobFairId = selectedJobFair.JobFairId || selectedJobFair.jobFairId;
-      const response = await api.startAttendanceSession(jobFairId);
+      const response = await api.generateDailyAttendanceQr(jobFairId);
       setSessionToken(response.data.sessionToken);
       setSessionActive(true);
       setAttendedCompanies([]);
-      toast.success('Attendance session started');
+      toast.success('Daily attendance QR generated');
     } catch (error) {
       const errorMsg = error.response?.data?.error || error.message || 'Failed to start attendance session';
       toast.error(errorMsg);
@@ -263,9 +263,9 @@ const AttendanceManagement = () => {
           <div className="bg-white rounded-lg shadow-md p-6">
             {!sessionActive ? (
               <div className="text-center py-12">
-                <h2 className="text-2xl font-bold mb-4">Start Attendance Session</h2>
+                <h2 className="text-2xl font-bold mb-4">Generate Daily Attendance QR</h2>
                 <p className="text-gray-600 mb-6">
-                  Click the button below to generate a dynamic QR code for this attendance session.
+                  Generate one static QR for today. Companies scan this QR to mark attendance.
                 </p>
                 <button
                   onClick={handleStartAttendanceSession}
@@ -273,13 +273,13 @@ const AttendanceManagement = () => {
                   className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-lg font-medium transition flex items-center justify-center gap-2 mx-auto"
                 >
                   <Play size={20} />
-                  Start Attendance Session
+                  Generate Daily QR
                 </button>
               </div>
             ) : (
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-2xl font-bold">Dynamic QR Code</h2>
+                  <h2 className="text-2xl font-bold">Daily Attendance QR</h2>
                   <div className="flex items-center gap-2">
                     <span className="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
                     <span className="text-green-600 font-semibold">Active</span>
@@ -301,7 +301,7 @@ const AttendanceManagement = () => {
                 </div>
 
                 <p className="text-center text-gray-600 mb-4">
-                  Companies can scan this QR code to mark their attendance
+                  Companies can scan this QR code to mark attendance for today
                 </p>
 
                 <div className="bg-gray-50 p-4 rounded-lg mb-6">
